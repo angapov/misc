@@ -47,6 +47,12 @@ exec { 'SELinux set permissive in runtime':
   refreshonly => true,
 }
 
+file { [ '/var/lib/mysql/', '/var/log/mysql/' ]:
+  ensure => directory,
+  owner  => 999,
+  group  => 999,
+}
+
 docker::image { 'mysql': }
 docker::image { 'my-httpd':
   docker_file => '/root/httpd-Dockerfile',
@@ -83,7 +89,8 @@ RUN touch /var/log/mysql/mysql.log && touch /var/log/mysql/mysql_error.log
 RUN chown mysql:mysql -R /var/log/mysql/ /var/lib/mysql/
 CMD [ "mysqld" ]
 ENTRYPOINT [ "docker-entrypoint.sh" ]
-'
+',
+  require => [ File['/var/lib/mysql/'], File['/var/log/mysql/'] ],
 }
 
 docker::run { 'my-mysql':
