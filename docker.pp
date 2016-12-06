@@ -1,8 +1,34 @@
+$icinga_uid = 996
+$icinga_gid = 993
+$icingacmd_gid = 992
+$mysql_docker_uid = 999
+$mysql_docker_gid = 999
+
+group { 'icinga': 
+  ensure => present, 
+  gid    => $icinga_gid, 
+} ->
+group { 'icingacmd': 
+  ensure => present, 
+  gid    => $icingacmd_gid, 
+} ->
+user { 'icinga':
+  uid     => $icinga_uid,
+  gid     => $icinga_gid,
+  groups  => 'icingacmd',
+}
+   
+file { [ '/var/lib/mysql/', '/var/log/mysql/' ]:
+  ensure => directory,
+  owner  => $mysql_docker_uid,
+  group  => $mysql_docker_gid,
+}
+
 $pkg = [ 'icinga', 'icinga2', 'icinga-gui', 's3cmd', 'nagios-plugins-all' ]
 
 package { $pkg: 
   ensure  => latest,
-  require => [ Yumrepo['icinga'], Yumrepo['epel'] ],
+  require => [ Yumrepo['icinga'], Yumrepo['epel'], User['icinga'] ],
 }
 
 yumrepo { 'icinga':
@@ -47,11 +73,6 @@ exec { 'SELinux set permissive in runtime':
   refreshonly => true,
 }
 
-file { [ '/var/lib/mysql/', '/var/log/mysql/' ]:
-  ensure => directory,
-  owner  => 999,
-  group  => 999,
-}
 
 docker::image { 'mysql': }
 docker::image { 'my-httpd':
@@ -66,15 +87,15 @@ docker::image { 'my-mysql':
  
 file { '/root/httpd-Dockerfile':
   ensure => file,
-  content => '
+  content => "
 FROM centos:centos7
 RUN yum install -y httpd php epel-release wget
 RUN wget http://packages.icinga.org/epel/ICINGA-release.repo -O /etc/yum.repos.d/ICINGA-release.repo
 RUN yum -y install icinga icinga-gui
-RUN groupmod -g 993 icinga; groupmod -g 992 icingacmd
+RUN groupmod -g ${icinga_gid} icinga; groupmod -g ${icingacmd_gid} icingacmd
 RUN usermod -aG icinga,icingacmd apache
-ENTRYPOINT ["/usr/sbin/httpd", "-D", "FOREGROUND"]
-'
+ENTRYPOINT ['/usr/sbin/httpd', '-D', 'FOREGROUND']
+"
 }
 
 file { '/root/mysql-Dockerfile':
