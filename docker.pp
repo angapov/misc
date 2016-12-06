@@ -70,9 +70,9 @@ file { '/root/httpd-Dockerfile':
 FROM centos:centos7
 RUN yum install -y httpd php epel-release wget
 RUN wget http://packages.icinga.org/epel/ICINGA-release.repo -O /etc/yum.repos.d/ICINGA-release.repo
-RUN yum -y install icinga
+RUN yum -y install icinga icinga-gui
+RUN groupmod -g 993 icinga; groupmod -g 992 icingacmd
 RUN usermod -aG icinga,icingacmd apache
-RUN usermod -aG icinga,icingacmd root
 ENTRYPOINT ["/usr/sbin/httpd", "-D", "FOREGROUND"]
 '
 }
@@ -113,6 +113,7 @@ docker::run { 'my-httpd':
                '/etc/icinga:/etc/icinga',
                '/etc/icinga2:/etc/icinga2' ],
   ports    => [ '80:80' ],
+  subscribe => Docker::Image['my-httpd'],
 }
 
 cron { 'MySQL logs to S3':
