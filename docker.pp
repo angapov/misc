@@ -1,5 +1,9 @@
-$pkg = [ 'icinga', 'icinga2', 'icinga-gui', 's3cmd', ]
-package { $pkg: ensure => latest }
+$pkg = [ 'icinga', 'icinga2', 'icinga-gui', 's3cmd', 'nagios-plugins-all' ]
+
+package { $pkg: 
+  ensure  => latest,
+  require => [ Yumrepo['icinga'], Yumrepo['epel'] ],
+}
 
 yumrepo { 'icinga':
   baseurl => 'http://packages.icinga.org/epel/$releasever/release/',
@@ -26,6 +30,11 @@ class { 'docker':
   manage_package              => false,
 }
 
+service { 'icinga': 
+  ensure => running,
+  enable => true,
+}
+
 file_line { 'SELinux set permissive in config':
   path   => '/etc/selinux/config',
   line   => 'SELINUX=permissive',
@@ -39,32 +48,54 @@ exec { 'SELinux set permissive in runtime':
 }
 
 docker::image { 'mysql': }
-docker::image { 'centos-httpd':
-  docker_file => '/root/Dockerfile',
-  subscribe   => File['/root/Dockerfile'],
+docker::image { 'my-httpd':
+  docker_file => '/root/httpd-Dockerfile',
+  subscribe   => File['/root/httpd-Dockerfile'],
+}
+
+docker::image { 'my-mysql':
+  docker_file => '/root/mysql-Dockerfile',
+  subscribe   => File['/root/mysql-Dockerfile'],
 }
  
-file { '/root/Dockerfile':
+file { '/root/httpd-Dockerfile':
   ensure => file,
   content => '
-FROM centos
-RUN yum install -y httpd php
+FROM centos:centos7
+RUN yum install -y httpd php epel-release wget
+RUN wget http://packages.icinga.org/epel/ICINGA-release.repo -O /etc/yum.repos.d/ICINGA-release.repo
+RUN yum -y install icinga
+RUN usermod -aG icinga,icingacmd apache
+RUN usermod -aG icinga,icingacmd root
 ENTRYPOINT ["/usr/sbin/httpd", "-D", "FOREGROUND"]
 '
 }
 
-docker::run { 'mysql':
-  image    => 'mysql',
-  volumes  => ['/var/lib/mysql:/var/lib/mysql',
-               '/var/log:/var/log',
-               '/etc/my.cnf:/etc/my.cnf',
-               '/etc/my.cnf.d:/etc/my.cnf.d' ],
-  env      => [ 'MYSQL_ROOT_PASSWORD=password' ],
-  ports    => [ '127.0.0.1:3306:3306'],
+file { '/root/mysql-Dockerfile':
+  ensure => file,
+  content => '
+FROM mysql
+RUN echo -n "[mysqld]\ngeneral_log=1\ngeneral_log_file=/var/log/mysql/mysql.log\nlog_error=/var/log/mysql/mysql_error.log" >> /etc/my.cnf
+VOLUME [ "/var/log/" ]
+RUN mkdir -p /var/log/mysql/
+RUN touch /var/log/mysql/mysql.log && touch /var/log/mysql/mysql_error.log
+RUN chown mysql:mysql -R /var/log/mysql/
+CMD [ "mysqld" ]
+ENTRYPOINT [ "docker-entrypoint.sh" ]
+'
 }
 
-docker::run { 'centos-httpd':
-  image    => 'centos-httpd',
+docker::run { 'my-mysql':
+  image    => 'my-mysql',
+  volumes  => ['/var/lib/mysql:/var/lib/mysql',
+               '/var/log:/var/log',],
+  env      => [ 'MYSQL_ROOT_PASSWORD=password' ],
+  ports    => [ '127.0.0.1:3306:3306'],
+  username => 'mysql',
+}
+
+docker::run { 'my-httpd':
+  image    => 'my-httpd',
   volumes  => ['/etc/httpd:/etc/httpd',
                '/var/www:/var/www',
                '/var/log:/var/log',
