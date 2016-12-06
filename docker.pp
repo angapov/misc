@@ -77,9 +77,10 @@ file { '/root/mysql-Dockerfile':
 FROM mysql
 RUN echo -n "[mysqld]\ngeneral_log=1\ngeneral_log_file=/var/log/mysql/mysql.log\nlog_error=/var/log/mysql/mysql_error.log" >> /etc/my.cnf
 VOLUME [ "/var/log/" ]
-RUN mkdir -p /var/log/mysql/
+VOLUME [ "/var/lib/mysql" ]
+RUN mkdir -p /var/log/mysql/ /var/lib/mysql/
 RUN touch /var/log/mysql/mysql.log && touch /var/log/mysql/mysql_error.log
-RUN chown mysql:mysql -R /var/log/mysql/
+RUN chown mysql:mysql -R /var/log/mysql/ /var/lib/mysql/
 CMD [ "mysqld" ]
 ENTRYPOINT [ "docker-entrypoint.sh" ]
 '
