@@ -1,6 +1,6 @@
-$icinga_uid = 996
-$icinga_gid = 993
-$icingacmd_gid = 992
+$icinga_uid = 1100
+$icinga_gid = 1101
+$icingacmd_gid = 1102
 $mysql_docker_uid = 999
 $mysql_docker_gid = 999
 
@@ -84,18 +84,18 @@ docker::image { 'my-mysql':
   docker_file => '/root/mysql-Dockerfile',
   subscribe   => File['/root/mysql-Dockerfile'],
 }
- 
-file { '/root/httpd-Dockerfile':
-  ensure => file,
-  content => "
-FROM centos:centos7
+
+$str1 = "FROM centos:centos7
 RUN yum install -y httpd php epel-release wget
 RUN wget http://packages.icinga.org/epel/ICINGA-release.repo -O /etc/yum.repos.d/ICINGA-release.repo
 RUN yum -y install icinga icinga-gui
 RUN groupmod -g ${icinga_gid} icinga; groupmod -g ${icingacmd_gid} icingacmd
-RUN usermod -aG icinga,icingacmd apache
-ENTRYPOINT ['/usr/sbin/httpd', '-D', 'FOREGROUND']
-"
+RUN usermod -aG icinga,icingacmd apache"
+$str2 = 'ENTRYPOINT ["/usr/sbin/httpd", "-D", "FOREGROUND"]'
+ 
+file { '/root/httpd-Dockerfile':
+  ensure => file,
+  content => "${str1}\n${str2}",
 }
 
 file { '/root/mysql-Dockerfile':
@@ -115,12 +115,12 @@ ENTRYPOINT [ "docker-entrypoint.sh" ]
 }
 
 docker::run { 'my-mysql':
-  image    => 'my-mysql',
-  volumes  => ['/var/lib/mysql:/var/lib/mysql',
+  image     => 'my-mysql',
+  volumes   => ['/var/lib/mysql:/var/lib/mysql',
                '/var/log:/var/log',],
-  env      => [ 'MYSQL_ROOT_PASSWORD=password' ],
-  ports    => [ '127.0.0.1:3306:3306'],
-  username => 'mysql',
+  env       => [ 'MYSQL_ROOT_PASSWORD=password' ],
+  ports     => [ '127.0.0.1:3306:3306'],
+  subscribe => Docker::Image['my-mysql'],
 }
 
 docker::run { 'my-httpd':
