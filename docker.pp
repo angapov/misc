@@ -1,32 +1,36 @@
+# Here we define user and group IDs to be used for host-container
+# interaction through Docker volumes
 $icinga_uid = 1100
 $icinga_gid = 1101
 $icingacmd_gid = 1102
 $mysql_docker_uid = 999
 $mysql_docker_gid = 999
 
-group { 'icinga': 
-  ensure => present, 
-  gid    => $icinga_gid, 
+group { 'icinga':
+  ensure => present,
+  gid    => $icinga_gid,
 } ->
-group { 'icingacmd': 
-  ensure => present, 
-  gid    => $icingacmd_gid, 
+group { 'icingacmd':
+  ensure => present,
+  gid    => $icingacmd_gid,
 } ->
 user { 'icinga':
   uid     => $icinga_uid,
   gid     => $icinga_gid,
   groups  => 'icingacmd',
 }
-   
+
+# Here we define shared host folder for MySQL container
 file { [ '/var/lib/mysql/', '/var/log/mysql/' ]:
   ensure => directory,
   owner  => $mysql_docker_uid,
   group  => $mysql_docker_gid,
 }
 
+# Icinga is installed on host machine but its web-interface is running in Docker
 $pkg = [ 'icinga', 'icinga2', 'icinga-gui', 's3cmd', 'nagios-plugins-all' ]
 
-package { $pkg: 
+package { $pkg:
   ensure  => latest,
   require => [ Yumrepo['icinga'], Yumrepo['epel'], User['icinga'] ],
 }
@@ -56,11 +60,12 @@ class { 'docker':
   manage_package              => false,
 }
 
-service { 'icinga': 
+service { 'icinga':
   ensure => running,
   enable => true,
 }
 
+# Icinga and Docker don't work well with SELinux
 file_line { 'SELinux set permissive in config':
   path   => '/etc/selinux/config',
   line   => 'SELINUX=permissive',
@@ -73,8 +78,10 @@ exec { 'SELinux set permissive in runtime':
   refreshonly => true,
 }
 
-
-docker::image { 'mysql': }
+# We create our own a bit customized images for MySQL and Apache
+# We create Dockerfiles and subscribe Docker container resource to it 
+# so Puppet will rebuild corresponding image and restart that container
+# as soon as we change any Dockerfile
 docker::image { 'my-httpd':
   docker_file => '/root/httpd-Dockerfile',
   subscribe   => File['/root/httpd-Dockerfile'],
@@ -85,6 +92,7 @@ docker::image { 'my-mysql':
   subscribe   => File['/root/mysql-Dockerfile'],
 }
 
+# A little string concatenation hack here to deal with Puppet variable substitution
 $str1 = "FROM centos:centos7
 RUN yum install -y httpd php epel-release wget
 RUN wget http://packages.icinga.org/epel/ICINGA-release.repo -O /etc/yum.repos.d/ICINGA-release.repo
@@ -92,7 +100,7 @@ RUN yum -y install icinga icinga-gui
 RUN groupmod -g ${icinga_gid} icinga; groupmod -g ${icingacmd_gid} icingacmd
 RUN usermod -aG icinga,icingacmd apache"
 $str2 = 'ENTRYPOINT ["/usr/sbin/httpd", "-D", "FOREGROUND"]'
- 
+
 file { '/root/httpd-Dockerfile':
   ensure => file,
   content => "${str1}\n${str2}",
@@ -114,6 +122,7 @@ ENTRYPOINT [ "docker-entrypoint.sh" ]
   require => [ File['/var/lib/mysql/'], File['/var/log/mysql/'] ],
 }
 
+# MySQL container is bound to 127.0.0.1:3306 on host
 docker::run { 'my-mysql':
   image     => 'my-mysql',
   volumes   => ['/var/lib/mysql:/var/lib/mysql',
@@ -123,6 +132,8 @@ docker::run { 'my-mysql':
   subscribe => Docker::Image['my-mysql'],
 }
 
+# Icinga itself is running on host machine but its frontend Apache is 
+# running in Docker, so we pass several host folders into container
 docker::run { 'my-httpd':
   image    => 'my-httpd',
   volumes  => ['/etc/httpd:/etc/httpd',
@@ -137,6 +148,7 @@ docker::run { 'my-httpd':
   subscribe => Docker::Image['my-httpd'],
 }
 
+# Create cron jobs for sending logs to S3
 cron { 'MySQL logs to S3':
   ensure  => present,
   command => 's3cmd sync /var/log/mysql/ s3://angapov/mysql_logs/',
@@ -151,6 +163,7 @@ cron { 'apache logs to S3':
   minute  => 00,
 }
 
+# Simple backup script that is keeping 7 latest backups
 file { 'mysql_backup':
   ensure  => file,
   path    => '/root/mysql_backup',
